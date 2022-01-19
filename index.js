@@ -15,6 +15,22 @@ app.use(bodyParser.json())
 https://www.youtube.com/playlist?list=PLdRrBA8IaU3Xp_qy8X-1u-iqeLlDCmR8a
 
 
+LAB3 & LAB4
+
+Create server with the following end points 
+POST /users with uuid, unique username 
+PATCH /users/id 
+GET /users with age filter 
+Create Error handler 
+POST /users/login /sucess 200 , error:403
+GET /users/id   200,   eror:404
+DELETE users/id  200,    error:404
+complete middleware for validating user
+Create Route For users 
+
+Bonus
+Edit patch end point to handle the sent data only
+If age is not sent return all users
 
 
 git add .
