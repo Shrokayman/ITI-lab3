@@ -2,111 +2,82 @@ const fs = require("fs");
 const { validateUser } = require("../userHelpers");
 const express = require("express");
 const router = express.Router();
-const { v4: uuidv4 } = require("uuid");
+const User = require('../models/User')
+var jwt = require('jsonwebtoken');
+const serverConfig = require('../serverConfig')
+const { auth } = require('../middlewares/auth')
+require('dotenv').config()
+require('../mongoConnect')
 
+
+// Post register using mongoDB
+router.post("/", async (req, res, next) => {
+    try {
+        console.log(req.body);
+        const { username, age, password } = req.body;
+        const user = new User({ username, age, password })
+        await user.save()
+        res.send({ message: "sucess" });
+    } catch (error) {
+        next({ status: 422, message: error.message });
+    }
+});
+
+// Post Login using mongoDB and generating token
+router.post("/login", async (req, res, next) => {
+    const { username, password } = req.body
+    const user = await User.findOne({ username })
+    if (!user) return next({ status: 401, message: "username or passord is incorrect" })
+    if (user.password !== password) next({ status: 401, message: "username or passord is incorrect" })
+    const payload = { id: user.id }
+    const token = jwt.sign(payload, serverConfig.secret, { expiresIn: "5d" })
+    return res.status(200).send({ message: "Logged in Successfully", token })
+})
+
+// Patch edit user by id and modify the only data sent with mongoDB
+router.patch("/users/:userId", auth, async (req, res, next) => {
+    if (req.user.id !== req.params.userId) next({ status: 403, message: "Authorization error" })
+    try {
+        const { password, age } = req.body
+        if (password) req.user.password = password
+        if (age) req.user.age = age
+        await req.user.save()
+        res.send("sucess")
+    } catch (error) {
+        next({ status: 500, internalMessage: error.message });
+    }
+
+});
+
+// Get with age filter and return all users if no age is sent wuth mongoDB
+router.get('/', auth, async (req, res, next) => {
+    try {
+        const query = req.query.age ? { age: req.query.age } : {}
+        const users = await User.find(query, { username: 1, age: 1, _id: 0 })
+        res.send(users)
+    } catch (error) {
+        next({ status: 500, internalMessage: error.message });
+    }
+})
 
 // Get user by id
-router.get("/:id", async (req, res, next) => {
+router.get("/:id", auth, async (req, res, next) => {
     try {
-        const id = req.params.id
-        console.log(id);
-        const users = await fs.promises.readFile('./user.json', { encoding: "utf8" })
-            .then((data) => JSON.parse(data))
-
-        const newUser = users.filter(user => {
-            return user.id == id
-        })
-        res.status(200).send(newUser)
+        const query = { _id: req.params.id }
+        const users = await User.find(query, { username: 1, age: 1, _id: 0 })
+        res.status(200).send(users)
     }
     catch (error) {
         next({ status: 500, internalMessage: error.message });
     }
 })
-
-// Get with age filter and return all users if no age is sent ====== BONUS ======
-router.get('/', async (req, res, next) => {
-    try {
-        const age = Number(req.query.age)
-        const users = await fs.promises
-            .readFile("./user.json", { encoding: "utf8" })
-            .then((data) => JSON.parse(data));
-        if (!age) {
-            return res.send(users)
-        }
-        const filteredUsers = users.filter(user => user.age === age)
-        res.send(filteredUsers)
-    } catch (error) {
-        next({ status: 500, internalMessage: error.message });
-    }
-
-});
-
-// Patch edit user by id and modify the only data sent ======= Bonus ========
-router.patch("/:id", validateUser, async (req, res, next) => {
-    try {
-        const id = req.params.id
-        var { username, password, age } = req.body
-        const users = await fs.promises.readFile('./user.json', { encoding: "utf8" })
-            .then((data) => JSON.parse(data))
-        const newUser = users.find(user => user.id == id)
-        if (username) newUser.username = username
-        if (password) newUser.password = password
-        if (age) newUser.age = age
-        
-        await fs.promises.writeFile("./user.json", JSON.stringify(users), (err) => {
-            if (!err) return res.status(200).send({ message: "success" })
-            res.status(500).send("server error")
-        })
-        res.status(200).send({ message: "user edited" })
-    }
-    catch (error) {
-        next({ status: 500, internalMessage: error.message });
-    }
-});
-
-// Post register
-router.post("/", validateUser, async (req, res, next) => {
-    try {
-        const { username, age, password } = req.body;
-        const data = await fs.promises
-            .readFile("./user.json", { encoding: "utf8" })
-            .then((data) => JSON.parse(data));
-        const id = uuidv4();
-        data.push({ id, username, age, password });
-        await fs.promises.writeFile("./user.json", JSON.stringify(data), {
-            encoding: "utf8",
-        });
-        res.send({ id, message: "sucess" });
-    } catch (error) {
-        next({ status: 500, internalMessage: error.message });
-    }
-});
-
-
-// Post login
-router.post("/login", validateUser, (req, res) => {
-    res.status(401).send({ error: "failed" })
-})
-
-
 
 // Delete user by id
-router.delete("/:id", async (req, res, next) => {
+router.delete("/:id", auth, async (req, res, next) => {
     try {
-        const id = req.params.id
-        console.log(id);
-        const users = await fs.promises.readFile('./user.json', { encoding: "utf8" })
-            .then((data) => JSON.parse(data))
-
-        const newUsers = users.filter(user => {
-            return user.id !== id
-        })
-        await fs.promises.writeFile("./user.json", JSON.stringify(newUsers), (err) => {
-            if (!err) return res.status(200).send({ message: "success" })
-            res.status(500).send("server error")
-        })
+        if (req.user.id !== req.params.userId) next({ status: 403, message: "Authorization error" })
+        await User.findByIdAndDelete(req.user.id)
         res.status(200).send({ message: "user deleted" })
-
     }
     catch (error) {
         next({ status: 500, internalMessage: error.message });
